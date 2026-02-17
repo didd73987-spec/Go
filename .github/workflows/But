@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>🔥 Red Chat</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:#111;
+  color:white;
+  display:flex;
+  justify-content:center;
+}
+.container{
+  width:400px;
+  margin-top:20px;
+}
+.card{
+  background:#1b1b1b;
+  padding:20px;
+  border-radius:15px;
+  box-shadow:0 0 15px rgba(255,0,0,0.4);
+}
+input,button{
+  width:100%;
+  padding:10px;
+  margin:6px 0;
+  border:none;
+  border-radius:8px;
+}
+input{ background:#2b2b2b; color:white; }
+button{
+  background:red;
+  color:white;
+  font-weight:bold;
+  cursor:pointer;
+}
+.chat{
+  height:300px;
+  overflow-y:auto;
+  background:#000;
+  padding:10px;
+  border-radius:10px;
+}
+.msg{
+  background:#222;
+  margin:5px 0;
+  padding:8px;
+  border-radius:8px;
+}
+.private{ background:#440000; }
+.profile-img{
+  width:60px;
+  height:60px;
+  border-radius:50%;
+  object-fit:cover;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- LOGIN -->
+<div class="card" id="authBox">
+<h2>🔥 Red Chat</h2>
+<input id="username" placeholder="اسم المستخدم">
+<input id="password" type="password" placeholder="كلمة المرور">
+<input id="avatar" placeholder="رابط الصورة الشخصية">
+<button onclick="register()">تسجيل</button>
+<button onclick="login()">دخول</button>
+</div>
+
+<!-- CHAT -->
+<div class="card" id="chatBox" style="display:none;">
+<div style="display:flex;align-items:center;gap:10px;">
+<img id="profileImg" class="profile-img">
+<h3 id="profileName"></h3>
+</div>
+
+<div class="chat" id="messages"></div>
+
+<input id="msgInput" placeholder="اكتب رسالة...">
+<button onclick="sendMessage()">إرسال</button>
+
+<hr>
+<h4>🔍 بحث عن مستخدم</h4>
+<input id="searchUser" placeholder="اسم المستخدم">
+<button onclick="search()">بحث</button>
+<div id="searchResult"></div>
+
+</div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+<script>
+// 🔴 ضع بيانات Firebase هنا
+const firebaseConfig = {
+  apiKey: "PUT_KEY",
+  authDomain: "PUT_DOMAIN",
+  projectId: "PUT_PROJECT_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let currentUser=null;
+let lastSend=0;
+
+// تسجيل
+async function register(){
+  const user=username.value.trim();
+  const pass=password.value.trim();
+  const avatarUrl=avatar.value.trim();
+
+  if(pass.length<8 || !/\d/.test(pass)){
+    alert("كلمة المرور يجب أن تكون 8 أحرف وتحتوي رقم");
+    return;
+  }
+
+  await db.collection("users").doc(user).set({
+    password:pass,
+    avatar:avatarUrl,
+    friends:[],
+    requests:[]
+  });
+
+  alert("تم التسجيل!");
+}
+
+// تسجيل الدخول
+async function login(){
+  const user=username.value.trim();
+  const pass=password.value.trim();
+
+  const doc=await db.collection("users").doc(user).get();
+  if(!doc.exists || doc.data().password!==pass){
+    alert("بيانات خاطئة");
+    return;
+  }
+
+  currentUser=user;
+  authBox.style.display="none";
+  chatBox.style.display="block";
+  profileName.innerText=user;
+  profileImg.src=doc.data().avatar || "https://i.imgur.com/4Z7pK.jpg";
+
+  loadMessages();
+}
+
+// إرسال رسالة
+async function sendMessage(){
+  const now=Date.now();
+  if(now-lastSend<5000){
+    alert("انتظر 5 ثواني");
+    return;
+  }
+
+  const text=msgInput.value.trim();
+  if(!text) return;
+
+  await db.collection("messages").add({
+    user:currentUser,
+    text:text,
+    time:now
+  });
+
+  msgInput.value="";
+  lastSend=now;
+}
+
+// تحميل الرسائل
+function loadMessages(){
+  db.collection("messages")
+    .orderBy("time")
+    .onSnapshot(snapshot=>{
+      messages.innerHTML="";
+      snapshot.forEach(doc=>{
+        const m=doc.data();
+        messages.innerHTML+=`
+        <div class="msg">
+          <b>${m.user}</b>: ${m.text}
+          ${m.user!==currentUser ? `<button onclick="privateChat('${m.user}')">💬</button>`:""}
+        </div>`;
+      });
+      messages.scrollTop=messages.scrollHeight;
+    });
+}
+
+// بحث عن مستخدم
+async function search(){
+  const name=searchUser.value.trim();
+  const doc=await db.collection("users").doc(name).get();
+
+  if(!doc.exists){
+    searchResult.innerText="❌ غير موجود";
+    return;
+  }
+
+  searchResult.innerHTML=`
+    ✔️ ${name}
+    <button onclick="sendFriend('${name}')">إضافة صديق</button>
+  `;
+}
+
+// إرسال طلب صداقة
+async function sendFriend(name){
+  await db.collection("users").doc(name).update({
+    requests: firebase.firestore.FieldValue.arrayUnion(currentUser)
+  });
+  alert("تم إرسال الطلب");
+}
+
+// دردشة خاصة
+function privateChat(user){
+  const text=prompt("رسالة خاصة إلى "+user);
+  if(!text) return;
+
+  db.collection("private").add({
+    from:currentUser,
+    to:user,
+    text:text,
+    time:Date.now()
+  });
+
+  alert("تم الإرسال");
+}
+</script>
+</body>
+</html>
